@@ -1,0 +1,69 @@
+The HTTP Request:
+
+	1. The request Line  - METHOD /path?query=value HTTP/1.1
+		a. METHOD - tells the server what to do.
+			i. GET - Retrieves a resource. Parameters go in the URL query string. No body. Cached by browsers and proxies - meaning sensitive data in GET parameters gets logged in server logs, browser history. This is an attack surface.
+			ii. POST - sends data in the body. Not cached. Used for form submissions, logins, API calls.
+			iii. PUT - Replaces a resource entirely at the given URI ( Uniform resource Identifier ).
+			iv. PATCH - Partially updates a resource. This often has weaker authorisation checks than PUT.
+			v. DELETE - deletes a resource. Missing authorisation here = critical vulnerability.
+			vi. OPTIONS - asks the server what methods are allowed on an endpoint. Useful for Recon.
+			vii. HEAD - Same as GET but the server returns just the header, Useful for checking if the resource exists without downloading it.
+Critical attacker insight - developers usually just restrict GET and POST. Sending a PUT or DELETE to an endpoint that only expects GET often bypasses access controls.
+		a. PATH - resource path on the server. (/api/V1/login)
+			i. Path traversal attacks like ../../../etc/passwd happen here.
+			ii. API versioning is an attack surface (/v1,/v2 etc). Older version might still be live and have fewer security controls.
+		b. HTTP Version - HTTP/1.1 vs HTTP/2
+			i. HTTP/1.1 - Text based, one request per connection(with keep alive). Headers are sent in Plain text.
+			ii. HTTP/2 - Binary protocol, multiplexed (multiple request over one connection), header compression via HPACK ( Header compression scheme) 
+	2. Request Headers - Headers are key value pairs separated by colon.  Each one is an attack surface.
+		a. Host : example.com  - this is the domain the request is intended for.
+			i. Host header injection - If the server uses the Host Header to generate URLs for password resets or redirects, then malicious host value can be injected and redirect the victims token to your server. Ex:Chanhge Host:example.com to Host:attacker.com will trigger password reset link sent to the victim will point to the attackers domain.
+		b. User-Agent: Mozilla/5.0   -- Identifies the client software.
+			i. Some Web application firewall(WAF) have googlebot in whitelist. User-Agent: Googlebot might bypass said WAF.
+		c. Cookie: session=abc: csrf_token=xyz  --  Sends stored cookied to the server. This is primary mechanism pf maintaining authenticated state.
+		d. Authorization: Bearer ewufagdhcavydgca…..  --- sends explicitly, typically A JASON Web Token or API keys.
+			i. If it's a bearer, it's a JWT and can be decoded.
+			ii. 'Basic' auth sends base64(username:password) - which is encoding and not encryption.
+		e. Content-Type: application/json --- Tells the server what format the body uses. It is a major attack surface.
+			i. Changing Content-Type from 'application/json' to 'application/x-www-form-urlencoded' or 'text/xml' can bypass input validation that only runs on one content type.
+			ii. Sending Content-Type: application/xml when the server does not expect it can trigger XXE(External Entity Injection) if XML parser is enabled.
+		f. Referrer: https:/example.com/dashboard - The URL of the page that triggered this request.
+			i. Sometimes used for access control.
+		g. X-Forwarded-For: 192.168.1.1 --- Added by proxies to pass original client IP address.
+		h. Origin: https:example.com   ---- Set by the browser on cross origin requests. Used by the server to enforce cross origin resource sharing.
+			i. If configured without a whitelist, an open invitation to CORS misconfiguration exploit.
+	3. The Request Body:
+		a. It is only present in PUT, POST, PATCH. The format is dictated by Content-Type:
+
+Status Codes:
+
+	1. 2xx -- Success
+		a. 200 OK -- Request succeeded.
+		b. 201 Created -- Resource was created. Common after POST to REST API
+		c. 204 No Content -- Success but no body.
+	2. 3xx  -- Redirection
+		a. 301 Moved Permanently / 302 Found --- Redirect. Redirect vulnerabilities are usually found in Location header
+		b. 304 Not Modified  --  Cached response served. Informs caching is active.
+	3. 4xx -- Client Errors
+		a. 400 Bad Request -- Malformed request. Payload might have broken the parser.
+		b. 401 Unauthorised -- Not authenticated. Which means there is an auth mechanism.
+		c. 403 Forbidden -- Authenticated but not authorized. Resource exists but can't access it.
+		d. 404 Not Found -- Resource does not exist. But some show the same for not allowed.
+		e. 405 Method Not allowed -- Wrong HTTP method.
+		f. 429 Too Many Requests -- Rate limiting is active.
+	4. 5xx -- Server Errors
+		a. 500 Internal Server Error - Your input broke something on the server side.
+		b. 502 Bad Gateway -- Load Balancer/ Proxy can't reach the backend.
+		c. 503 Service unavailable - Server down or overloaded.
+
+
+Response Headers - Security Headers and it's vulnerability vectors.
+
+	1. Set-Cookie: session=abc123; HttpOnly; Secure; SameSite=Strict -- This is where you analyze cookie security. Missing HttpOnly = stealable via XSS. Missing Secure = transmittable over HTTP. SameSite=None without proper CORS = CSRF possible.
+	2. Access-Control-Allow-Origin: *   -- Wildcard CORS. Any website can read this response in a cross-origin request. If combined with Access-Control-Allow-Credentials: true, it's a critical vulnerability — but note: browsers block wildcard + credentials together. Misconfigured specific origins are more dangerous.
+	3. Content-Security-Policy (CSP) --  Defines what scripts, styles, and resources can execute. A missing or weak CSP is what allows XSS to have full impact. 
+	4. X-Frame-Options: DENY  --  Prevents the page from being embedded in an iframe. Missing = Clickjacking vulnerability.
+	5. Server: Apache/2.4.49 -- Version disclosure. Map this to known CVEs (Common Vulnerabilities and Exposures) immediately.
+	6. X-Powered-By: PHP/7.2.0  -- Technology disclosure. PHP 7.2 is EOL (End of Life)  known unpatched vulnerabilities exist.
+	7. Location: /dashboard  -- Used in redirects. If attacker-controlled input ends up in this header, it's an open redirect  which can be chained into phishing and OAuth token theft.
